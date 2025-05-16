@@ -1,0 +1,13 @@
+fastapi
+motor
+pymongo
+pandas
+numpy
+torch
+transformers
+datasets
+requests
+aiohttp
+jinja2
+python-dateutil
+tqdm
