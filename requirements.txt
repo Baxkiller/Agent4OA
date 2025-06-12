@@ -12,7 +12,6 @@ jinja2
 python-dateutil
 tqdm
 opencv-python
-youtube-dl
 yt-dlp
 beautifulsoup4
 selenium
@@ -32,7 +31,6 @@ ffmpeg-python
 python-dotenv
 aiofiles
 httpx
-aliyun-python-sdk-core
 
 # 语音识别增强依赖 (可选)
 vosk>=0.3.45              # 离线语音识别，支持中文
