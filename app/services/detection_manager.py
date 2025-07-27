@@ -18,13 +18,13 @@ logger = logging.getLogger(__name__)
 class DetectionManager:
     """检测服务管理器"""
     
-    def __init__(self, openai_api_key: Optional[str] = None, model_name: str = "gpt-3.5-turbo"):
+    def __init__(self, openai_api_key: Optional[str] = None, model_name: str = "qwen-vl-max-2025-04-08"):
         # 从环境变量获取API密钥
         if not openai_api_key:
             openai_api_key = os.getenv("OPENAI_API_KEY")
         
         if not openai_api_key:
-            raise ValueError("需要提供OpenAI API密钥")
+            raise ValueError("需要提供API密钥")
         
         # 初始化各个检测器
         self.fake_news_detector = FakeNewsDetector(openai_api_key, model_name)

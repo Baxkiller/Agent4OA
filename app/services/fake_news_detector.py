@@ -1,5 +1,5 @@
 import asyncio
-import openai
+import dashscope
 from typing import List, Dict, Any, Optional
 import logging
 import json
@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 class FakeNewsDetector:
     """虚假信息检测服务"""
     
-    def __init__(self, openai_api_key: str, model_name: str = "gpt-4o"):  # 默认使用多模态模型
-        self.client = openai.AsyncOpenAI(api_key=openai_api_key)
+    def __init__(self, openai_api_key: str, model_name: str = "qwen-vl-max-2025-04-08"):  # 默认使用Qwen-VL模型
+        dashscope.api_key = openai_api_key
         self.model_name = model_name
         
         # 虚假信息检测的系统提示词
@@ -42,6 +42,100 @@ class FakeNewsDetector:
             with open(prompt_path, 'r', encoding='utf-8') as file:
                 self.system_prompt = file.read()
     
+    def update_prompt_config(self, parent_json: Dict[str, Any], child_json: Dict[str, Any]):
+        """更新系统提示词配置"""
+        try:
+            # 重新读取原始prompt文件，确保有最新的基础prompt
+            try:
+                with open('app/prompts/fake_news_detection_prompt.txt', 'r', encoding='utf-8') as file:
+                    base_prompt = file.read()
+            except FileNotFoundError:
+                import os
+                current_dir = os.path.dirname(__file__)
+                prompt_path = os.path.join(os.path.dirname(current_dir), 'prompts', 'fake_news_detection_prompt.txt')
+                with open(prompt_path, 'r', encoding='utf-8') as file:
+                    base_prompt = file.read()
+            
+            # 定义标准的虚假信息类别映射
+            standard_categories = {
+                "身份冒充": ["情感操纵", "身份冒充", "假明星", "假专家", "身份冒充"],
+                "虚假致富经与技能培训": ["虚假致富", "技能培训", "赚钱", "培训课程", "虚假致富经与技能培训"],
+                "伪科学养生与健康焦虑": ["伪科学", "养生", "健康", "保健品", "伪科学养生与健康焦虑"],
+                "诱导性消费与直播陷阱": ["诱导消费", "直播陷阱", "苦情戏", "商品推销", "诱导性消费与直播陷阱"],
+                "AI生成式虚假内容": ["AI生成", "虚假内容", "合成", "深度伪造", "AI生成式虚假内容"]
+            }
+            
+            # 将输入的类别映射到标准类别
+            mapped_scores = {}
+            all_input_categories = set(parent_json.keys()) | set(child_json.keys())
+            
+            for input_category in all_input_categories:
+                parent_score = parent_json.get(input_category, 0)
+                child_score = child_json.get(input_category, 0)
+                combined_score = (parent_score + child_score) / 2
+                
+                # 找到匹配的标准类别
+                matched = False
+                for standard_cat, aliases in standard_categories.items():
+                    if any(alias in input_category for alias in aliases) or input_category in aliases:
+                        mapped_scores[standard_cat] = max(mapped_scores.get(standard_cat, 0), combined_score)
+                        matched = True
+                        break
+                
+                # 如果没有匹配到标准类别，直接使用原类别名
+                if not matched:
+                    mapped_scores[input_category] = combined_score
+            
+            # 根据评分生成prompt调整内容
+            if mapped_scores:
+                base_prompt += "\n\n## 🎯 虚假信息检测关注度配置\n"
+                base_prompt += "请根据以下各类虚假信息的关注程度调整检测严格度：\n"
+                
+                # 按分数排序，高分的优先关注
+                sorted_categories = sorted(mapped_scores.items(), key=lambda x: x[1], reverse=True)
+                
+                high_priority = []  # 4-5分
+                medium_priority = []  # 2-3分
+                low_priority = []  # 0-1分
+                
+                for category, score in sorted_categories:
+                    if score >= 4:
+                        high_priority.append(f"{category}({score:.1f}分)")
+                    elif score >= 2:
+                        medium_priority.append(f"{category}({score:.1f}分)")
+                    else:
+                        low_priority.append(f"{category}({score:.1f}分)")
+                
+                if high_priority:
+                    base_prompt += f"\n**🚨 高度关注类别（严格检测）**: {', '.join(high_priority)}"
+                    base_prompt += "\n- 对这些类别的虚假信息要特别警惕，即使疑似内容也要标记并提供详细解释"
+                    base_prompt += "\n- 在fake_news_category字段中优先识别这些类别"
+                
+                if medium_priority:
+                    base_prompt += f"\n**⚠️ 中度关注类别（常规检测）**: {', '.join(medium_priority)}"
+                    base_prompt += "\n- 对这些类别保持正常的事实核查标准"
+                
+                if low_priority:
+                    base_prompt += f"\n**📝 低度关注类别（宽松检测）**: {', '.join(low_priority)}"
+                    base_prompt += "\n- 对这些类别可以相对宽松，只标记明显的虚假信息"
+                
+                base_prompt += "\n\n**重要**: 在返回的JSON中，fake_news_category字段必须使用以下标准类别名称之一："
+                base_prompt += "\n- 身份冒充"
+                base_prompt += "\n- 虚假致富经与技能培训"
+                base_prompt += "\n- 伪科学养生与健康焦虑"
+                base_prompt += "\n- 诱导性消费与直播陷阱"
+                base_prompt += "\n- AI生成式虚假内容"
+                base_prompt += "\n\n**严格要求**: 不允许使用'其他'类别，必须准确归类到上述五个标准类别中的一个。"
+                base_prompt += "\n\n请在检测时参考以上关注度设置，对高关注度类别提供更详细的事实核查和解释。"
+            
+            # 更新系统提示词
+            self.system_prompt = base_prompt
+            logger.info(f"虚假信息检测器的系统提示词已更新，处理了{len(mapped_scores)}个类别")
+            
+        except Exception as e:
+            logger.error(f"更新虚假信息检测器提示词失败: {e}")
+            raise
+    
     async def detect_fake_news(
         self, 
         content: str, 
@@ -49,7 +143,7 @@ class FakeNewsDetector:
         images: Optional[List[str]] = None
     ) -> FakeNewsDetectionResult:
         """检测虚假信息（支持多模态：文本+图像）"""
-        max_tries = 5
+        max_tries = 3
         last_error = None
         
         for attempt in range(max_tries):
@@ -80,7 +174,8 @@ class FakeNewsDetector:
                     false_claims=analysis_result.get("false_claims", []),
                     factual_version=analysis_result.get("factual_version", ""),
                     truth_explanation=analysis_result.get("truth_explanation", ""),
-                    safety_tips=analysis_result.get("safety_tips", [])
+                    safety_tips=analysis_result.get("safety_tips", []),
+                    fake_news_category=analysis_result.get("fake_news_category", "其他")
                 )
                 
             except Exception as e:
@@ -112,47 +207,57 @@ class FakeNewsDetector:
             
             user_prompt += "\n\n请严格按照JSON格式返回分析结果。"
             
-            # 构建messages，支持图像输入
+            # 构建messages
             messages = [
-                {"role": "system", "content": self.system_prompt}
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_prompt}
             ]
             
-            # 用户消息包含文本和图像
-            user_message = {"role": "user", "content": []}
-            
-            # 添加文本内容
-            user_message["content"].append({
-                "type": "text",
-                "text": user_prompt
-            })
-            
-            # 添加图像（最多5张）
+            # 准备图像数据
+            image_urls = []
             if images:
                 image_count = min(len(images), 5)
                 for i, image_path in enumerate(images[:image_count]):
                     try:
                         with open(image_path, "rb") as image_file:
                             base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-                        
-                        user_message["content"].append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        })
+                            image_urls.append(f"data:image/jpeg;base64,{base64_image}")
                     except Exception as e:
                         logger.warning(f"无法读取图像 {image_path}: {e}")
             
-            messages.append(user_message)
-            
-            response = await self.client.chat.completions.create(
+            # 调用Qwen-VL API
+            response = await asyncio.to_thread(
+                dashscope.MultiModalConversation.call,
                 model=self.model_name,
                 messages=messages,
+                images=image_urls if image_urls else None,
                 temperature=0.1,
                 max_tokens=1000
             )
             
-            result_text = response.choices[0].message.content.strip()
+            if response.status_code != 200:
+                if "API" in str(response.message):
+                    print("Current API key invalid: ", dashscope.api_key)
+                raise Exception(f"API调用失败: {response.message}")
+            
+            # 修复：处理content可能是list的情况
+            content_raw = response.output.choices[0].message.content
+            if isinstance(content_raw, list):
+                # 如果是list，合并所有文本内容
+                result_text = ""
+                for item in content_raw:
+                    if isinstance(item, dict) and 'text' in item:
+                        result_text += item['text']
+                    elif isinstance(item, str):
+                        result_text += item
+                    else:
+                        result_text += str(item)
+            else:
+                # 如果是字符串，直接使用
+                result_text = str(content_raw)
+            
+            result_text = result_text.strip()
+            logger.debug(f"LLM原始返回: {result_text}")
             
             # 尝试解析JSON结果
             try:
@@ -170,6 +275,8 @@ class FakeNewsDetector:
                 
         except Exception as e:
             logger.error(f"多模态LLM分析失败: {e}")
+            if "API" in str(e):
+                print("Current API key invalid: ", dashscope.api_key)
             return self._get_default_llm_result()
     
     def _get_default_llm_result(self) -> Dict[str, Any]:

@@ -152,11 +152,12 @@ class TongyiSpeechRecognizer:
         # 1. 上传文件到OSS
         # 2. 返回OSS文件的公网可访问URL
         
-        raise NotImplementedError(
-            "需要实现文件上传到OSS的逻辑。\n"
-            "请参考阿里云OSS Python SDK文档：\n"
-            "https://help.aliyun.com/document_detail/32026.html"
-        )
+        # 修正：如果不是http/https链接，则认为是本地文件，并转换为file://协议的URL
+        # 确保路径是绝对路径
+        abs_path = os.path.abspath(file_path)
+        file_url = f"file://{abs_path}"
+        logger.info(f"将本地文件路径转换为URL: {file_url}")
+        return file_url
     
     def _submit_file_transcription_task(self, 
                                       file_url: str,
@@ -181,10 +182,12 @@ class TongyiSpeechRecognizer:
             "appkey": self.app_key,
             "file_link": file_url,
             "version": "4.0",
+            "format": "mp3",  # 显式指定音频格式为mp3
+            "sample_rate": 16000, # 明确告知我们已标准化的采样率
             "enable_words": enable_words,
             "enable_punctuation_prediction": enable_punctuation,
             "enable_inverse_text_normalization": True,  # 启用ITN，数字转换
-            "enable_sample_rate_adaptive": True,  # 自动采样率适配
+            "enable_sample_rate_adaptive": False,  # 关闭采样率自适应，因为我们已手动标准化
         }
         
         request.add_body_params("Task", json.dumps(task_params))
@@ -239,7 +242,7 @@ class TongyiSpeechRecognizer:
                     logger.debug(f"任务状态: {status}，继续等待...")
                     time.sleep(5)  # 等待5秒后重试
                 else:
-                    raise Exception(f"任务失败，状态: {status}")
+                    raise Exception(f"任务失败，状态: {status}; 结果: {result}")
                     
             except (ClientException, ServerException) as e:
                 logger.error(f"查询任务状态异常: {e}")

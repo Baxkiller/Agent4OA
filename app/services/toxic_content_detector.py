@@ -1,5 +1,5 @@
 import asyncio
-import openai
+import dashscope
 from typing import List, Dict, Any, Optional
 import logging
 import json
@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 class ToxicContentDetector:
     """毒性内容检测服务"""
     
-    def __init__(self, openai_api_key: str, model_name: str = "gpt-4o"):  # 默认使用多模态模型
-        self.client = openai.AsyncOpenAI(api_key=openai_api_key)
+    def __init__(self, openai_api_key: str, model_name: str = "qwen-vl-max-2025-04-08"):  # 默认使用Qwen-VL模型
+        dashscope.api_key = openai_api_key
         self.model_name = model_name
         
         # 毒性内容检测的系统提示词
@@ -42,6 +42,98 @@ class ToxicContentDetector:
             with open(prompt_path, 'r', encoding='utf-8') as file:
                 self.system_prompt = file.read()
     
+    def update_prompt_config(self, parent_json: Dict[str, Any], child_json: Dict[str, Any]):
+        """更新系统提示词配置"""
+        try:
+            # 重新读取原始prompt文件，确保有最新的基础prompt
+            try:
+                with open('app/prompts/toxic_content_detection_prompt.txt', 'r', encoding='utf-8') as file:
+                    base_prompt = file.read()
+            except FileNotFoundError:
+                import os
+                current_dir = os.path.dirname(__file__)
+                prompt_path = os.path.join(os.path.dirname(current_dir), 'prompts', 'toxic_content_detection_prompt.txt')
+                with open(prompt_path, 'r', encoding='utf-8') as file:
+                    base_prompt = file.read()
+            
+            # 定义标准的毒性内容类别映射
+            standard_categories = {
+                "骚扰与网络霸凌": ["骚扰", "网络霸凌", "霸凌", "骚扰与网络霸凌"],
+                "仇恨言论与身份攻击": ["仇恨言论", "身份攻击", "歧视", "仇恨言论与身份攻击"],
+                "威胁与恐吓": ["威胁", "恐吓", "威胁与恐吓"],
+                "公开羞辱与诋毁": ["公开羞辱", "诋毁", "人肉搜索", "公开羞辱与诋毁"]
+            }
+            
+            # 将输入的类别映射到标准类别
+            mapped_scores = {}
+            all_input_categories = set(parent_json.keys()) | set(child_json.keys())
+            
+            for input_category in all_input_categories:
+                parent_score = parent_json.get(input_category, 0)
+                child_score = child_json.get(input_category, 0)
+                combined_score = (parent_score + child_score) / 2
+                
+                # 找到匹配的标准类别
+                matched = False
+                for standard_cat, aliases in standard_categories.items():
+                    if any(alias in input_category for alias in aliases) or input_category in aliases:
+                        mapped_scores[standard_cat] = max(mapped_scores.get(standard_cat, 0), combined_score)
+                        matched = True
+                        break
+                
+                # 如果没有匹配到标准类别，直接使用原类别名
+                if not matched:
+                    mapped_scores[input_category] = combined_score
+            
+            # 根据评分生成prompt调整内容
+            if mapped_scores:
+                base_prompt += "\n\n## 🎯 毒性内容检测关注度配置\n"
+                base_prompt += "请根据以下各类毒性内容的关注程度调整检测严格度：\n"
+                
+                # 按分数排序，高分的优先关注
+                sorted_categories = sorted(mapped_scores.items(), key=lambda x: x[1], reverse=True)
+                
+                high_priority = []  # 4-5分
+                medium_priority = []  # 2-3分
+                low_priority = []  # 0-1分
+                
+                for category, score in sorted_categories:
+                    if score >= 4:
+                        high_priority.append(f"{category}({score:.1f}分)")
+                    elif score >= 2:
+                        medium_priority.append(f"{category}({score:.1f}分)")
+                    else:
+                        low_priority.append(f"{category}({score:.1f}分)")
+                
+                if high_priority:
+                    base_prompt += f"\n**🚨 高度关注类别（严格检测）**: {', '.join(high_priority)}"
+                    base_prompt += "\n- 对这些类别的内容要特别敏感，即使轻微的倾向也要标记"
+                    base_prompt += "\n- 在toxicity_category字段中优先识别这些类别"
+                
+                if medium_priority:
+                    base_prompt += f"\n**⚠️ 中度关注类别（常规检测）**: {', '.join(medium_priority)}"
+                    base_prompt += "\n- 对这些类别保持正常的检测标准"
+                
+                if low_priority:
+                    base_prompt += f"\n**📝 低度关注类别（宽松检测）**: {', '.join(low_priority)}"
+                    base_prompt += "\n- 对这些类别可以相对宽松，只标记明显的有害内容"
+                
+                base_prompt += "\n\n**重要**: 在返回的JSON中，toxicity_category字段必须使用以下标准类别名称之一："
+                base_prompt += "\n- 骚扰与网络霸凌"
+                base_prompt += "\n- 仇恨言论与身份攻击" 
+                base_prompt += "\n- 威胁与恐吓"
+                base_prompt += "\n- 公开羞辱与诋毁"
+                base_prompt += "\n\n**严格要求**: 不允许使用'其他'类别，必须准确归类到上述四个标准类别中的一个。"
+                base_prompt += "\n\n请在检测时参考以上关注度设置，调整判断的严格程度。"
+            
+            # 更新系统提示词
+            self.system_prompt = base_prompt
+            logger.info(f"毒性内容检测器的系统提示词已更新，处理了{len(mapped_scores)}个类别")
+            
+        except Exception as e:
+            logger.error(f"更新毒性内容检测器提示词失败: {e}")
+            raise
+    
     async def detect_toxic_content(
         self, 
         content: str, 
@@ -50,7 +142,7 @@ class ToxicContentDetector:
         audio_transcript: Optional[str] = None
     ) -> ToxicContentDetectionResult:
         """检测毒性内容（支持多模态：文本+视频帧+音频转录）"""
-        max_tries = 5
+        max_tries = 3
         last_error = None
         
         for attempt in range(max_tries):
@@ -82,7 +174,8 @@ class ToxicContentDetector:
                     toxic_elements=final_result.get("offensive_words", []),
                     detoxified_meaning=final_result.get("clean_version", ""),
                     friendly_alternative=final_result.get("clean_version", ""),
-                    elderly_explanation=final_result.get("explanation_for_elderly", "")
+                    elderly_explanation=final_result.get("explanation_for_elderly", ""),
+                    toxicity_category=final_result.get("toxicity_category", "其他")
                 )
                 
             except Exception as e:
@@ -123,47 +216,57 @@ class ToxicContentDetector:
             
             user_prompt = "请分析以下多媒体内容是否包含毒性或有害内容：\n\n" + "\n".join(user_prompt_parts) + "\n\n请严格按照JSON格式返回分析结果。"
             
-            # 构建messages，支持图像输入
+            # 构建messages
             messages = [
-                {"role": "system", "content": self.system_prompt}
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_prompt}
             ]
             
-            # 用户消息包含文本和图像
-            user_message = {"role": "user", "content": []}
-            
-            # 添加文本内容
-            user_message["content"].append({
-                "type": "text",
-                "text": user_prompt
-            })
-            
-            # 添加视频帧图像（最多5张）
+            # 准备图像数据
+            image_urls = []
             if video_frames:
                 frame_count = min(len(video_frames), 5)
                 for i, frame_path in enumerate(video_frames[:frame_count]):
                     try:
                         with open(frame_path, "rb") as image_file:
                             base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-                        
-                        user_message["content"].append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        })
+                            image_urls.append(f"data:image/jpeg;base64,{base64_image}")
                     except Exception as e:
                         logger.warning(f"无法读取视频帧 {frame_path}: {e}")
             
-            messages.append(user_message)
-            
-            response = await self.client.chat.completions.create(
+            # 调用Qwen-VL API
+            response = await asyncio.to_thread(
+                dashscope.MultiModalConversation.call,
                 model=self.model_name,
                 messages=messages,
+                images=image_urls if image_urls else None,
                 temperature=0.1,
                 max_tokens=1000
             )
             
-            result_text = response.choices[0].message.content.strip()
+            if response.status_code != 200:
+                if "API" in str(response.message):
+                    print("Current API key invalid: ", dashscope.api_key)
+                raise Exception(f"API调用失败: {response.message}")
+            
+            # 修复：处理content可能是list的情况
+            content_raw = response.output.choices[0].message.content
+            if isinstance(content_raw, list):
+                # 如果是list，合并所有文本内容
+                result_text = ""
+                for item in content_raw:
+                    if isinstance(item, dict) and 'text' in item:
+                        result_text += item['text']
+                    elif isinstance(item, str):
+                        result_text += item
+                    else:
+                        result_text += str(item)
+            else:
+                # 如果是字符串，直接使用
+                result_text = str(content_raw)
+            
+            result_text = result_text.strip()
+            logger.debug(f"LLM原始返回: {result_text}")
             
             # 尝试解析JSON结果
             try:

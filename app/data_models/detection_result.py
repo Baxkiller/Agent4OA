@@ -36,6 +36,7 @@ class FakeNewsDetectionResult(DetectionResult):
     factual_version: Optional[str] = None  # 真实信息版本
     truth_explanation: Optional[str] = None  # 真相解释
     safety_tips: Optional[List[str]] = None  # 防骗提醒
+    fake_news_category: Optional[str] = None  # 虚假信息类别
 
 
 class ToxicContentDetectionResult(DetectionResult):
@@ -51,6 +52,7 @@ class ToxicContentDetectionResult(DetectionResult):
     detoxified_meaning: Optional[str] = None  # 去毒后的意思
     friendly_alternative: Optional[str] = None  # 友善的替代表达
     elderly_explanation: Optional[str] = None  # 面向老年人的解释
+    toxicity_category: Optional[str] = None  # 毒性类别
 
 
 class PrivacyLeakDetectionResult(DetectionResult):
@@ -67,4 +69,5 @@ class PrivacyLeakDetectionResult(DetectionResult):
     safe_version: Optional[str] = None  # 安全的替代版本
     elderly_explanation: Optional[str] = None  # 给老年人的通俗解释
     protection_tips: Optional[List[str]] = None  # 隐私保护建议
-    suggested_changes: Optional[List[Dict[str, Any]]] = None  # 具体修改建议 
+    suggested_changes: Optional[List[Dict[str, Any]]] = None  # 具体修改建议
+    privacy_category: Optional[str] = None  # 隐私类别 
