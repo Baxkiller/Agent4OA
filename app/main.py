@@ -32,6 +32,12 @@ except ImportError:
     from app.services.fake_news_detector import FakeNewsDetector
     from app.services.privacy_leak_detector import PrivacyLeakDetector
 
+# 导入通知API路由
+try:
+    from .notification.notification_routes import router as notification_router
+except ImportError:
+    from app.notification.notification_routes import router as notification_router
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -325,6 +331,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册通知API路由
+app.include_router(notification_router, prefix="/api/notification", tags=["risk-notification"])
 
 
 @app.get("/")

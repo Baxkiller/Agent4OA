@@ -11,6 +11,9 @@ from ..data_models.detection_result import (
     ToxicContentDetectionResult, 
     PrivacyLeakDetectionResult
 )
+from app.notification.risk_notification_service import RiskNotificationService
+from app.notification.notification_routes import risk_notifications
+from app.data_models.user_relationship import UserRelationshipManager
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +33,32 @@ class DetectionManager:
         self.fake_news_detector = FakeNewsDetector(openai_api_key, model_name)
         self.toxic_content_detector = ToxicContentDetector(openai_api_key, model_name)
         self.privacy_leak_detector = PrivacyLeakDetector(openai_api_key, model_name)
+        self.notification_service = RiskNotificationService()
+        self.relationship_manager = UserRelationshipManager()
         
         logger.info("检测服务管理器初始化完成")
     
     async def detect_fake_news_from_url(self, content_url: str, user_id: Optional[str] = None) -> FakeNewsDetectionResult:
         """从URL检测虚假信息"""
         try:
-            return await self.fake_news_detector.detect_fake_news_from_url(content_url, user_id)
+            result = await self.fake_news_detector.detect_fake_news_from_url(content_url, user_id)
+            # 检测到风险时发送通知（示例：is_detected为True时）
+            if result.is_detected and user_id:
+                # 根据老年人ID查找子女ID
+                child_user_id = self.relationship_manager.get_child_user_id(user_id)
+                if child_user_id:
+                    notification = self.notification_service.send_notification(
+                        elder_user_id=user_id,
+                        child_user_id=child_user_id,
+                        content_type="fake_news",
+                        risk_level="高" if result.confidence_score > 0.8 else "中",
+                        platform="URL",
+                        suggestion="建议核查信息来源，避免转发可疑内容"
+                    )
+                    risk_notifications.append(notification)
+                else:
+                    logger.warning(f"未找到用户 {user_id} 的子女关系")
+            return result
         except Exception as e:
             logger.error(f"虚假信息检测失败: {e}")
             raise
@@ -44,7 +66,23 @@ class DetectionManager:
     async def detect_fake_news_from_text(self, content_text: str, user_id: Optional[str] = None) -> FakeNewsDetectionResult:
         """从文本检测虚假信息"""
         try:
-            return await self.fake_news_detector.detect_fake_news_from_text(content_text, user_id)
+            result = await self.fake_news_detector.detect_fake_news_from_text(content_text, user_id)
+            if result.is_detected and user_id:
+                # 根据老年人ID查找子女ID
+                child_user_id = self.relationship_manager.get_child_user_id(user_id)
+                if child_user_id:
+                    notification = self.notification_service.send_notification(
+                        elder_user_id=user_id,
+                        child_user_id=child_user_id,
+                        content_type="fake_news",
+                        risk_level="高" if result.confidence_score > 0.8 else "中",
+                        platform="文本",
+                        suggestion="建议核查信息来源，避免转发可疑内容"
+                    )
+                    risk_notifications.append(notification)
+                else:
+                    logger.warning(f"未找到用户 {user_id} 的子女关系")
+            return result
         except Exception as e:
             logger.error(f"文本虚假信息检测失败: {e}")
             raise
@@ -52,7 +90,23 @@ class DetectionManager:
     async def detect_toxic_content(self, content: str, user_id: Optional[str] = None) -> ToxicContentDetectionResult:
         """检测毒性内容"""
         try:
-            return await self.toxic_content_detector.detect_toxic_content(content, user_id)
+            result = await self.toxic_content_detector.detect_toxic_content(content, user_id)
+            if result.is_detected and user_id:
+                # 根据老年人ID查找子女ID
+                child_user_id = self.relationship_manager.get_child_user_id(user_id)
+                if child_user_id:
+                    notification = self.notification_service.send_notification(
+                        elder_user_id=user_id,
+                        child_user_id=child_user_id,
+                        content_type="toxic_content",
+                        risk_level=result.severity_level or "中",
+                        platform="文本",
+                        suggestion="建议注意言辞，避免传播有害内容"
+                    )
+                    risk_notifications.append(notification)
+                else:
+                    logger.warning(f"未找到用户 {user_id} 的子女关系")
+            return result
         except Exception as e:
             logger.error(f"毒性内容检测失败: {e}")
             raise
@@ -60,7 +114,23 @@ class DetectionManager:
     async def detect_privacy_leak(self, content: str, user_id: Optional[str] = None) -> PrivacyLeakDetectionResult:
         """检测隐私泄露"""
         try:
-            return await self.privacy_leak_detector.detect_privacy_leak(content, user_id)
+            result = await self.privacy_leak_detector.detect_privacy_leak(content, user_id)
+            if result.is_detected and user_id:
+                # 根据老年人ID查找子女ID
+                child_user_id = self.relationship_manager.get_child_user_id(user_id)
+                if child_user_id:
+                    notification = self.notification_service.send_notification(
+                        elder_user_id=user_id,
+                        child_user_id=child_user_id,
+                        content_type="privacy_leak",
+                        risk_level=result.risk_level or "中",
+                        platform="文本",
+                        suggestion="建议删除敏感信息，保护个人隐私"
+                    )
+                    risk_notifications.append(notification)
+                else:
+                    logger.warning(f"未找到用户 {user_id} 的子女关系")
+            return result
         except Exception as e:
             logger.error(f"隐私泄露检测失败: {e}")
             raise

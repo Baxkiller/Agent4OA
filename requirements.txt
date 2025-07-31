@@ -33,11 +33,11 @@ aiofiles
 httpx
 
 # 语音识别增强依赖 (可选)
-vosk>=0.3.45              # 离线语音识别，支持中文
+#vosk>=0.3.45              # 离线语音识别，支持中文
 baidu-aip>=4.16.0         # 百度语音识别API (可选)
-pyaudio>=0.2.11           # 音频处理 (某些环境可能需要)
-wave>=0.0.2               # WAV文件处理
+#pyaudio>=0.2.11           # 音频处理 (某些环境可能需要)
+#wave>=0.0.2               # WAV文件处理
 
 # 阿里云通义听悟语音识别
-aliyun-python-sdk-core-v3>=2.13.36  # 阿里云Python SDK核心库
+#aliyun-python-sdk-core-v3>=2.13.36  # 阿里云Python SDK核心库
 oss2>=2.17.0              # 阿里云OSS SDK (用于文件上传，可选)
