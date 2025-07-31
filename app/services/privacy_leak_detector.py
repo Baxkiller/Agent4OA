@@ -1,5 +1,5 @@
 import asyncio
-import openai
+import dashscope
 import re
 from typing import List, Dict, Any, Optional
 import logging
@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 class PrivacyLeakDetector:
     """老年人隐私保护检测服务"""
     
-    def __init__(self, openai_api_key: str, model_name: str = "gpt-4o"):  # 默认使用多模态模型
-        self.client = openai.AsyncOpenAI(api_key=openai_api_key)
+    def __init__(self, openai_api_key: str, model_name: str = "qwen-vl-max-2025-04-08"):  # 默认使用Qwen-VL模型
+        dashscope.api_key = openai_api_key
         self.model_name = model_name
         
 
@@ -45,6 +45,104 @@ class PrivacyLeakDetector:
             with open(prompt_path, 'r', encoding='utf-8') as file:
                 self.system_prompt = file.read()
     
+    def update_prompt_config(self, parent_json: Dict[str, Any], child_json: Dict[str, Any]):
+        """更新系统提示词配置"""
+        try:
+            # 重新读取原始prompt文件，确保有最新的基础prompt
+            try:
+                with open('app/prompts/privacy_protection_prompt.txt', 'r', encoding='utf-8') as file:
+                    base_prompt = file.read()
+            except FileNotFoundError:
+                import os
+                current_dir = os.path.dirname(__file__)
+                prompt_path = os.path.join(os.path.dirname(current_dir), 'prompts', 'privacy_protection_prompt.txt')
+                with open(prompt_path, 'r', encoding='utf-8') as file:
+                    base_prompt = file.read()
+            
+            # 定义标准的隐私信息类别映射
+            standard_categories = {
+                "核心身份与财务信息": ["核心身份", "财务信息", "银行卡", "密码", "社保号", "核心身份与财务信息"],
+                "个人标识与安全验证信息": ["个人标识", "安全验证", "出生日期", "住址", "电话", "个人标识与安全验证信息"],
+                "实时位置与日常行踪": ["实时位置", "日常行踪", "定位", "行程", "GPS", "实时位置与日常行踪"],
+                "个人生活与家庭关系": ["个人生活", "家庭关系", "家庭信息", "健康状况", "个人生活与家庭关系"]
+            }
+            
+            # 将输入的类别映射到标准类别
+            mapped_scores = {}
+            all_input_categories = set(parent_json.keys()) | set(child_json.keys())
+            
+            for input_category in all_input_categories:
+                parent_score = parent_json.get(input_category, 0)
+                child_score = child_json.get(input_category, 0)
+                combined_score = (parent_score + child_score) / 2
+                
+                # 找到匹配的标准类别
+                matched = False
+                for standard_cat, aliases in standard_categories.items():
+                    if any(alias in input_category for alias in aliases) or input_category in aliases:
+                        mapped_scores[standard_cat] = max(mapped_scores.get(standard_cat, 0), combined_score)
+                        matched = True
+                        break
+                
+                # 如果没有匹配到标准类别，直接使用原类别名
+                if not matched:
+                    mapped_scores[input_category] = combined_score
+            
+            # 根据评分生成prompt调整内容
+            if mapped_scores:
+                base_prompt += "\n\n## 🎯 隐私保护检测关注度配置\n"
+                base_prompt += "请根据以下各类隐私信息的关注程度调整检测严格度：\n"
+                
+                # 按分数排序，高分的优先关注
+                sorted_categories = sorted(mapped_scores.items(), key=lambda x: x[1], reverse=True)
+                
+                high_priority = []  # 4-5分
+                medium_priority = []  # 2-3分
+                low_priority = []  # 0-1分
+                
+                for category, score in sorted_categories:
+                    if score >= 4:
+                        high_priority.append(f"{category}({score:.1f}分)")
+                    elif score >= 2:
+                        medium_priority.append(f"{category}({score:.1f}分)")
+                    else:
+                        low_priority.append(f"{category}({score:.1f}分)")
+                
+                if high_priority:
+                    base_prompt += f"\n**🚨 高度关注类别（严格保护）**: {', '.join(high_priority)}"
+                    base_prompt += "\n- 对这些类别的隐私信息要极度敏感，即使间接暴露也要警告并提供保护建议"
+                    base_prompt += "\n- 在privacy_category字段中优先识别这些类别"
+                    base_prompt += "\n- 风险等级自动提升到'高风险'或'极高风险'"
+                
+                if medium_priority:
+                    base_prompt += f"\n**⚠️ 中度关注类别（常规保护）**: {', '.join(medium_priority)}"
+                    base_prompt += "\n- 对这些类别保持正常的隐私保护标准"
+                
+                if low_priority:
+                    base_prompt += f"\n**📝 低度关注类别（基础保护）**: {', '.join(low_priority)}"
+                    base_prompt += "\n- 对这些类别进行基础的隐私检查，标记明显的隐私风险"
+                
+                base_prompt += "\n\n**重要**: 在返回的JSON中，privacy_category字段必须使用以下标准类别名称之一："
+                base_prompt += "\n- 核心身份与财务信息"
+                base_prompt += "\n- 个人标识与安全验证信息"
+                base_prompt += "\n- 实时位置与日常行踪"
+                base_prompt += "\n- 个人生活与家庭关系"
+                base_prompt += "\n\n**严格要求**: 不允许使用'其他'类别，必须准确归类到上述四个标准类别中的一个。"
+                base_prompt += "\n\n**诈骗场景提醒**: 请特别关注以下可能的诈骗利用场景："
+                base_prompt += "\n- 身份冒用和金融诈骗（核心身份与财务信息）"
+                base_prompt += "\n- 精准诈骗和密码重置攻击（个人标识与安全验证信息）"
+                base_prompt += "\n- 入室盗窃和人身安全威胁（实时位置与日常行踪）"
+                base_prompt += "\n- 亲友求助诈骗和医疗救助诈骗（个人生活与家庭关系）"
+                base_prompt += "\n\n请在检测时参考以上关注度设置，对高关注度类别提供更详细的隐私保护建议。"
+            
+            # 更新系统提示词
+            self.system_prompt = base_prompt
+            logger.info(f"隐私泄露检测器的系统提示词已更新，处理了{len(mapped_scores)}个类别")
+            
+        except Exception as e:
+            logger.error(f"更新隐私泄露检测器提示词失败: {e}")
+            raise
+    
     async def detect_privacy_leak(
         self, 
         content: str, 
@@ -52,7 +150,7 @@ class PrivacyLeakDetector:
         images: Optional[List[str]] = None
     ) -> PrivacyLeakDetectionResult:
         """检测隐私泄露风险（支持多模态：文本+图像）"""
-        max_tries = 5
+        max_tries = 3
         last_error = None
         
         for attempt in range(max_tries):
@@ -100,7 +198,8 @@ class PrivacyLeakDetector:
                     safe_version=analysis_result.get("safe_version", ""),
                     elderly_explanation=analysis_result.get("elderly_explanation", ""),
                     protection_tips=analysis_result.get("protection_tips", []),
-                    suggested_changes=analysis_result.get("suggested_changes", [])
+                    suggested_changes=analysis_result.get("suggested_changes", []),
+                    privacy_category=analysis_result.get("privacy_category", "其他")
                 )
                 
             except Exception as e:
@@ -133,47 +232,57 @@ class PrivacyLeakDetector:
             
             user_prompt += "\n\n请仔细检查并给出安全建议。"
             
-            # 构建messages，支持图像输入
+            # 构建messages
             messages = [
-                {"role": "system", "content": self.system_prompt}
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_prompt}
             ]
             
-            # 用户消息包含文本和图像
-            user_message = {"role": "user", "content": []}
-            
-            # 添加文本内容
-            user_message["content"].append({
-                "type": "text",
-                "text": user_prompt
-            })
-            
-            # 添加图像（最多5张）
+            # 准备图像数据
+            image_urls = []
             if images:
                 image_count = min(len(images), 5)
                 for i, image_path in enumerate(images[:image_count]):
                     try:
                         with open(image_path, "rb") as image_file:
                             base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-                        
-                        user_message["content"].append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        })
+                            image_urls.append(f"data:image/jpeg;base64,{base64_image}")
                     except Exception as e:
                         logger.warning(f"无法读取图像 {image_path}: {e}")
             
-            messages.append(user_message)
-            
-            response = await self.client.chat.completions.create(
+            # 调用Qwen-VL API
+            response = await asyncio.to_thread(
+                dashscope.MultiModalConversation.call,
                 model=self.model_name,
                 messages=messages,
+                images=image_urls if image_urls else None,
                 temperature=0.1,
                 max_tokens=1500
             )
             
-            result_text = response.choices[0].message.content.strip()
+            if response.status_code != 200:
+                if "API" in str(response.message):
+                    print("Current API key invalid: ", dashscope.api_key)
+                raise Exception(f"API调用失败: {response.message}")
+            
+            # 修复：处理content可能是list的情况
+            content_raw = response.output.choices[0].message.content
+            if isinstance(content_raw, list):
+                # 如果是list，合并所有文本内容
+                result_text = ""
+                for item in content_raw:
+                    if isinstance(item, dict) and 'text' in item:
+                        result_text += item['text']
+                    elif isinstance(item, str):
+                        result_text += item
+                    else:
+                        result_text += str(item)
+            else:
+                # 如果是字符串，直接使用
+                result_text = str(content_raw)
+            
+            result_text = result_text.strip()
+            logger.debug(f"LLM原始返回: {result_text}")
             
             # 尝试解析JSON结果
             try:

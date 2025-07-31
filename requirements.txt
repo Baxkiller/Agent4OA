@@ -20,24 +20,40 @@ scikit-learn
 nltk
 spacy
 detoxify
-openai
+dashscope>=1.10.0
 uvicorn
 python-multipart
 Pillow
 moviepy
-SpeechRecognition
 pydub
 ffmpeg-python
 python-dotenv
 aiofiles
 httpx
 
-# 语音识别增强依赖 (可选)
-#vosk>=0.3.45              # 离线语音识别，支持中文
-baidu-aip>=4.16.0         # 百度语音识别API (可选)
-#pyaudio>=0.2.11           # 音频处理 (某些环境可能需要)
-#wave>=0.0.2               # WAV文件处理
 
 # 阿里云通义听悟语音识别
-#aliyun-python-sdk-core-v3>=2.13.36  # 阿里云Python SDK核心库
+aliyun-python-sdk-core-v3>=2.13.36  # 阿里云Python SDK核心库
 oss2>=2.17.0              # 阿里云OSS SDK (用于文件上传，可选)
+
+# 阿里云通义听悟实时ASR接口依赖
+
+# 阿里云SDK核心库 (注意版本兼容性)
+aliyun-python-sdk-core==2.13.36
+aliyun-python-sdk-core-v3==2.13.33
+
+# 基础依赖
+six>=1.16.0
+requests>=2.25.1
+jmespath>=0.10.0
+cryptography>=3.4.8
+
+# WebSocket客户端
+websockets>=10.4
+
+# 其他可能需要的依赖
+urllib3>=1.26.0
+certifi>=2021.5.25
+
+# # 阿里云OSS SDK
+# >>>>>>> 4e6427ea2ee8eb3ad28c86cc6e71640c4c091ce4
