@@ -902,7 +902,7 @@ class UnifiedContentDetector:
                 #     "red_flags": getattr(result, 'red_flags', [])
                 # }
                 detection_result = {
-                    "is_fake_for_elderly": true,
+                    "is_fake_for_elderly": True,
                     "confidence": 0.98,
                     "fake_news_category": "诱导性消费与直播陷阱",
                     "fake_aspects": [
@@ -958,6 +958,69 @@ class UnifiedContentDetector:
             # 步骤5: 缓存结果（仅对视频内容）
             if video_id and detection_result:
                 self.save_detection_to_cache(video_id, detection_type, detection_result)
+            
+            # 步骤6: 发送风险通知（如果检测到风险）
+            if detection_result and user_id:
+                # 检查是否检测到风险
+                is_risk_detected = False
+                if detection_type == "fake_news" and detection_result.get("is_fake_for_elderly"):
+                    is_risk_detected = True
+                elif detection_type == "toxic" and detection_result.get("is_toxic_for_elderly"):
+                    is_risk_detected = True
+                elif detection_type == "privacy" and detection_result.get("has_privacy_risk"):
+                    is_risk_detected = True
+                
+                if is_risk_detected:
+                    try:
+                        # 导入通知服务
+                        from app.notification.risk_notification_service import RiskNotificationService
+                        from app.notification.notification_store import add_notification
+                        from app.data_models.user_relationship import UserRelationshipManager
+                        
+                        # 获取用户关系
+                        relationship_manager = UserRelationshipManager()
+                        child_user_id = relationship_manager.get_child_user_id(user_id)
+                        
+                        if child_user_id:
+                            # 创建通知服务实例
+                            notification_service = RiskNotificationService()
+                            
+                            # 确定风险等级
+                            risk_level = "高"
+                            if detection_type == "fake_news":
+                                confidence = detection_result.get("confidence", 0)
+                                risk_level = "高" if confidence > 0.8 else "中"
+                            elif detection_type == "toxic":
+                                risk_level = detection_result.get("severity", "中")
+                            elif detection_type == "privacy":
+                                risk_level = detection_result.get("risk_level", "中")
+                            
+                            # 确定建议内容
+                            suggestion = ""
+                            if detection_type == "fake_news":
+                                suggestion = "建议核查信息来源，避免转发可疑内容"
+                            elif detection_type == "toxic":
+                                suggestion = "建议注意言辞，避免传播有害内容"
+                            elif detection_type == "privacy":
+                                suggestion = "建议删除敏感信息，保护个人隐私"
+                            
+                            # 发送通知
+                            notification = await notification_service.send_notification(
+                                elder_user_id=user_id,
+                                child_user_id=child_user_id,
+                                content_type=detection_type,
+                                risk_level=risk_level,
+                                platform="文本",
+                                suggestion=suggestion,
+                                push_methods=["websocket"]
+                            )
+                            
+                            # 保存通知到数据库
+                            add_notification(notification)
+                            logger.info(f"风险通知已发送: {notification.notification_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"发送风险通知失败: {e}")
             
             return ContentDetectionResponse(
                 success=True,
