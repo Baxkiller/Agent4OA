@@ -1057,7 +1057,7 @@ async def lifespan(app: FastAPI):
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
         # 设置默认的API密钥（仅用于测试）
-        openai_api_key = "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"
+        openai_api_key = openai_api_key # 这边需要替换为真实的openai-key 但由于隐私考虑，推送到github上需要隐藏
         logger.info("使用默认OpenAI API密钥进行测试")
     else:
         logger.info("OPENAI_API_KEY已设置")
