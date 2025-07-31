@@ -12,7 +12,7 @@ from ..data_models.detection_result import (
     PrivacyLeakDetectionResult
 )
 from app.notification.risk_notification_service import RiskNotificationService
-from app.notification.notification_routes import risk_notifications
+from app.notification.notification_store import add_notification
 from app.data_models.user_relationship import UserRelationshipManager
 
 logger = logging.getLogger(__name__)
@@ -47,15 +47,16 @@ class DetectionManager:
                 # 根据老年人ID查找子女ID
                 child_user_id = self.relationship_manager.get_child_user_id(user_id)
                 if child_user_id:
-                    notification = self.notification_service.send_notification(
+                    notification = await self.notification_service.send_notification(
                         elder_user_id=user_id,
                         child_user_id=child_user_id,
                         content_type="fake_news",
                         risk_level="高" if result.confidence_score > 0.8 else "中",
                         platform="URL",
-                        suggestion="建议核查信息来源，避免转发可疑内容"
+                        suggestion="建议核查信息来源，避免转发可疑内容",
+                        push_methods=["websocket"]  # 默认使用WebSocket推送
                     )
-                    risk_notifications.append(notification)
+                    add_notification(notification)
                 else:
                     logger.warning(f"未找到用户 {user_id} 的子女关系")
             return result
@@ -71,15 +72,16 @@ class DetectionManager:
                 # 根据老年人ID查找子女ID
                 child_user_id = self.relationship_manager.get_child_user_id(user_id)
                 if child_user_id:
-                    notification = self.notification_service.send_notification(
+                    notification = await self.notification_service.send_notification(
                         elder_user_id=user_id,
                         child_user_id=child_user_id,
                         content_type="fake_news",
                         risk_level="高" if result.confidence_score > 0.8 else "中",
                         platform="文本",
-                        suggestion="建议核查信息来源，避免转发可疑内容"
+                        suggestion="建议核查信息来源，避免转发可疑内容",
+                        push_methods=["websocket"]
                     )
-                    risk_notifications.append(notification)
+                    add_notification(notification)
                 else:
                     logger.warning(f"未找到用户 {user_id} 的子女关系")
             return result
@@ -95,15 +97,16 @@ class DetectionManager:
                 # 根据老年人ID查找子女ID
                 child_user_id = self.relationship_manager.get_child_user_id(user_id)
                 if child_user_id:
-                    notification = self.notification_service.send_notification(
+                    notification = await self.notification_service.send_notification(
                         elder_user_id=user_id,
                         child_user_id=child_user_id,
                         content_type="toxic_content",
                         risk_level=result.severity_level or "中",
                         platform="文本",
-                        suggestion="建议注意言辞，避免传播有害内容"
+                        suggestion="建议注意言辞，避免传播有害内容",
+                        push_methods=["websocket"]
                     )
-                    risk_notifications.append(notification)
+                    add_notification(notification)
                 else:
                     logger.warning(f"未找到用户 {user_id} 的子女关系")
             return result
@@ -119,15 +122,16 @@ class DetectionManager:
                 # 根据老年人ID查找子女ID
                 child_user_id = self.relationship_manager.get_child_user_id(user_id)
                 if child_user_id:
-                    notification = self.notification_service.send_notification(
+                    notification = await self.notification_service.send_notification(
                         elder_user_id=user_id,
                         child_user_id=child_user_id,
                         content_type="privacy_leak",
                         risk_level=result.risk_level or "中",
                         platform="文本",
-                        suggestion="建议删除敏感信息，保护个人隐私"
+                        suggestion="建议删除敏感信息，保护个人隐私",
+                        push_methods=["websocket"]
                     )
-                    risk_notifications.append(notification)
+                    add_notification(notification)
                 else:
                     logger.warning(f"未找到用户 {user_id} 的子女关系")
             return result

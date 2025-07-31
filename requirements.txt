@@ -33,14 +33,14 @@ httpx
 
 
 # 阿里云通义听悟语音识别
-aliyun-python-sdk-core-v3>=2.13.36  # 阿里云Python SDK核心库
+aliyun-python-sdk-core-v3>=2.13.33  # 阿里云Python SDK核心库
 oss2>=2.17.0              # 阿里云OSS SDK (用于文件上传，可选)
 
 # 阿里云通义听悟实时ASR接口依赖
 
 # 阿里云SDK核心库 (注意版本兼容性)
-aliyun-python-sdk-core==2.13.36
-aliyun-python-sdk-core-v3==2.13.33
+aliyun-python-sdk-core>=2.13.0
+aliyun-python-sdk-core-v3>=2.13.33
 
 # 基础依赖
 six>=1.16.0
