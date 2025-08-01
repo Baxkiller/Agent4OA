@@ -994,7 +994,6 @@ class UnifiedContentDetector:
                                 risk_level = detection_result.get("severity", "中")
                             elif detection_type == "privacy":
                                 risk_level = detection_result.get("risk_level", "中")
-                            
                             # 确定建议内容
                             suggestion = ""
                             if detection_type == "fake_news":
